@@ -35,13 +35,14 @@
 
     canvas {
       display: block;
-      width: 800px;
-      height: 600px;
-      max-width: calc(100vw - 24px);
-      max-height: calc((100vw - 24px) * 0.75);
+      width: min(800px, calc(100vw - 24px), calc((100svh - 90px) * 4 / 3));
+      height: auto;
+      aspect-ratio: 4 / 3;
       background: #ffffff;
       border: 1px solid #c7ced8;
       box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16);
+      touch-action: none;
+      user-select: none;
     }
 
     .game-frame {
@@ -95,6 +96,40 @@
     .name-screen.hidden {
       display: none;
     }
+
+    .mobile-controls {
+      position: absolute;
+      inset: 0;
+      display: none;
+      pointer-events: none;
+    }
+
+    .mobile-control {
+      position: absolute;
+      bottom: 14px;
+      width: 92px;
+      height: 92px;
+      border: 2px solid rgba(17, 24, 39, 0.65);
+      background: rgba(255, 255, 255, 0.72);
+      color: #111827;
+      font-size: 44px;
+      font-weight: 700;
+      pointer-events: auto;
+      touch-action: none;
+      user-select: none;
+    }
+
+    .mobile-control.left {
+      left: 14px;
+    }
+
+    .mobile-control.right {
+      right: 14px;
+    }
+
+    body.mobile-mode .mobile-controls.active {
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -109,6 +144,10 @@
           <button type="submit">Start</button>
         </form>
       </div>
+      <div id="mobileControls" class="mobile-controls" aria-hidden="true">
+        <button id="moveLeftButton" class="mobile-control left" type="button" aria-label="Move left">←</button>
+        <button id="moveRightButton" class="mobile-control right" type="button" aria-label="Move right">→</button>
+      </div>
     </div>
   </main>
 
@@ -120,6 +159,9 @@
     const playerNameScreen = document.getElementById("playerNameScreen");
     const playerNameForm = document.getElementById("playerNameForm");
     const playerNameInput = document.getElementById("playerNameInput");
+    const mobileControls = document.getElementById("mobileControls");
+    const moveLeftButton = document.getElementById("moveLeftButton");
+    const moveRightButton = document.getElementById("moveRightButton");
 
     const WHITE = "#ffffff";
     const RED = "#ff0000";
@@ -409,13 +451,29 @@
       h: buttonHeight
     };
 
+    const pcModeButton = {
+      label: "PC",
+      x: Math.floor(width / 2) - buttonWidth - Math.floor(buttonGap / 2),
+      y: Math.floor(height / 2) + 20,
+      w: buttonWidth,
+      h: buttonHeight
+    };
+
+    const mobileModeButton = {
+      label: "Mobile",
+      x: Math.floor(width / 2) + Math.floor(buttonGap / 2),
+      y: Math.floor(height / 2) + 20,
+      w: buttonWidth,
+      h: buttonHeight
+    };
+
     let player = createPlayer();
     let particles = [];
     let playerName = "";
+    let controlMode = "";
     let gameState = "name_input";
     let selectedLevel = null;
     let selectedLevelName = "";
-    let gameOverStartedAt = 0;
     let gameOverMenuStartedAt = 0;
     let gameOverIsotope = "";
     let gameStartedAt = 0;
@@ -485,6 +543,37 @@
       return x >= button.x && x <= button.x + button.w && y >= button.y && y <= button.y + button.h;
     }
 
+    function getCanvasPoint(event) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      return {
+        x: (event.clientX - rect.left) * scaleX,
+        y: (event.clientY - rect.top) * scaleY
+      };
+    }
+
+    function detectControlMode() {
+      const hasTouch = navigator.maxTouchPoints > 0;
+      const hasCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+      const canHover = window.matchMedia("(hover: hover)").matches;
+
+      if ((hasTouch || hasCoarsePointer) && !canHover) return "mobile";
+      if (!hasTouch && !hasCoarsePointer && canHover) return "pc";
+      return "";
+    }
+
+    function setControlMode(mode) {
+      controlMode = mode;
+      document.body.classList.toggle("mobile-mode", controlMode === "mobile");
+      mobileControls.setAttribute("aria-hidden", controlMode === "mobile" ? "false" : "true");
+      keys.clear();
+    }
+
+    function setMobileControlsActive(isActive) {
+      mobileControls.classList.toggle("active", controlMode === "mobile" && isActive);
+    }
+
     function resetGame(levelName) {
       selectedLevel = levels[levelName];
       selectedLevelName = levelName;
@@ -498,13 +587,16 @@
       nextParalysisCheckAt = performance.now() + (selectedLevel.paralysisInterval ?? 10000);
       paralysisUntil = 0;
       gameState = "playing";
+      setMobileControlsActive(true);
     }
 
     function triggerGameOver() {
       gameOverIsotope = getIsotopeLabel(player.protons, player.neutrons);
       gameOverElapsedSeconds = Math.floor((performance.now() - gameStartedAt) / 1000);
-      gameState = "game_over";
-      gameOverStartedAt = performance.now();
+      keys.clear();
+      gameState = "game_over_menu";
+      setMobileControlsActive(false);
+      gameOverMenuStartedAt = performance.now();
     }
 
     function spawnParticles() {
@@ -542,10 +634,10 @@
 
       const isParalyzed = selectedLevel.paralysis && now < paralysisUntil;
       if (!isParalyzed) {
-        if ((keys.has("ArrowLeft") || keys.has("KeyA")) && player.x - player.radius > 0) {
+        if ((keys.has("ArrowLeft") || keys.has("KeyA") || keys.has("MobileLeft")) && player.x - player.radius > 0) {
           player.x -= 5;
         }
-        if ((keys.has("ArrowRight") || keys.has("KeyD")) && player.x + player.radius < width) {
+        if ((keys.has("ArrowRight") || keys.has("KeyD") || keys.has("MobileRight")) && player.x + player.radius < width) {
           player.x += 5;
         }
       }
@@ -607,7 +699,6 @@
     function drawMenu() {
       clearScreen();
       drawCenteredText("Select Level", width / 2, height / 4, 52);
-      drawCenteredText("Move with ← → or A/D. Avoid photons. Collect protons and neutrons.", width / 2, height / 4 + 48, 18, DARK_GRAY);
       for (const button of levelButtons) {
         drawButton(button);
       }
@@ -619,23 +710,23 @@
       drawCenteredText("Type your name and press Start.", width / 2, height / 2 + 35, 22, DARK_GRAY);
     }
 
-    function drawGameOverSummary(includeButtons) {
+    function drawModeSelect() {
       clearScreen();
-      if (includeButtons) {
-        drawCenteredText("GAME OVER", width / 2, height / 3 - 95, 48);
-        drawCenteredText(`Player: ${playerName}`, width / 2, height / 3 - 40, 34);
-        drawCenteredText(selectedLevelName, width / 2, height / 3 + 10, 42);
-        drawCenteredText(gameOverIsotope, width / 2, height / 3 + 62, 42);
-        drawCenteredText(getTimeLabel(gameOverElapsedSeconds), width / 2, height / 3 + 112, 42);
-        drawButton(restartButton);
-        drawButton(otherModeButton);
-      } else {
-        drawCenteredText("GAME OVER", width / 2, height / 2 - 120, 52);
-        drawCenteredText(`Player: ${playerName}`, width / 2, height / 2 - 58, 38);
-        drawCenteredText(selectedLevelName, width / 2, height / 2, 46);
-        drawCenteredText(gameOverIsotope, width / 2, height / 2 + 58, 46);
-        drawCenteredText(getTimeLabel(gameOverElapsedSeconds), width / 2, height / 2 + 116, 46);
-      }
+      drawCenteredText("Select Device", width / 2, height / 2 - 90, 52);
+      drawCenteredText("Choose once for this game.", width / 2, height / 2 - 35, 22, DARK_GRAY);
+      drawButton(pcModeButton);
+      drawButton(mobileModeButton);
+    }
+
+    function drawGameOverSummary() {
+      clearScreen();
+      drawCenteredText("GAME OVER", width / 2, height / 3 - 95, 48);
+      drawCenteredText(`Player: ${playerName}`, width / 2, height / 3 - 40, 34);
+      drawCenteredText(selectedLevelName, width / 2, height / 3 + 10, 42);
+      drawCenteredText(gameOverIsotope, width / 2, height / 3 + 62, 42);
+      drawCenteredText(getTimeLabel(gameOverElapsedSeconds), width / 2, height / 3 + 112, 42);
+      drawButton(restartButton);
+      drawButton(otherModeButton);
     }
 
     function drawPlaying() {
@@ -672,11 +763,6 @@
 
         if (gameState === "playing") {
           updatePlaying();
-        } else if (gameState === "game_over") {
-          if (performance.now() - gameOverStartedAt >= 3000) {
-            gameState = "game_over_menu";
-            gameOverMenuStartedAt = performance.now();
-          }
         } else if (gameState === "game_over_menu") {
           if (performance.now() - gameOverMenuStartedAt >= 10000) {
             selectedLevel = null;
@@ -687,6 +773,7 @@
             nextParalysisCheckAt = 0;
             paralysisUntil = 0;
             gameState = "menu";
+            setMobileControlsActive(false);
           }
         }
 
@@ -695,21 +782,21 @@
 
       if (gameState === "name_input") {
         drawNameInput();
+      } else if (gameState === "mode_select") {
+        drawModeSelect();
       } else if (gameState === "menu") {
         drawMenu();
       } else if (gameState === "playing") {
         drawPlaying();
-      } else if (gameState === "game_over") {
-        drawGameOverSummary(false);
       } else if (gameState === "game_over_menu") {
-        drawGameOverSummary(true);
+        drawGameOverSummary();
       }
 
       requestAnimationFrame(gameLoop);
     }
 
     window.addEventListener("keydown", (event) => {
-      if (gameState !== "playing") return;
+      if (gameState !== "playing" || controlMode !== "pc") return;
       if (["ArrowLeft", "ArrowRight", "KeyA", "KeyD"].includes(event.code)) {
         event.preventDefault();
         keys.add(event.code);
@@ -724,17 +811,54 @@
       event.preventDefault();
       playerName = playerNameInput.value.trim() || "Player";
       playerNameScreen.classList.add("hidden");
-      gameState = "menu";
+      const detectedMode = detectControlMode();
+      if (detectedMode) {
+        setControlMode(detectedMode);
+        gameState = "menu";
+      } else {
+        gameState = "mode_select";
+      }
     });
 
-    canvas.addEventListener("click", (event) => {
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-      const x = (event.clientX - rect.left) * scaleX;
-      const y = (event.clientY - rect.top) * scaleY;
+    function bindMobileMoveButton(button, keyName) {
+      button.addEventListener("pointerdown", (event) => {
+        if (controlMode !== "mobile" || gameState !== "playing") return;
+        event.preventDefault();
+        button.setPointerCapture(event.pointerId);
+        keys.add(keyName);
+      });
 
-      if (gameState === "menu") {
+      button.addEventListener("pointerup", (event) => {
+        if (button.hasPointerCapture(event.pointerId)) {
+          button.releasePointerCapture(event.pointerId);
+        }
+        keys.delete(keyName);
+      });
+
+      button.addEventListener("pointercancel", () => {
+        keys.delete(keyName);
+      });
+
+      button.addEventListener("lostpointercapture", () => {
+        keys.delete(keyName);
+      });
+    }
+
+    bindMobileMoveButton(moveLeftButton, "MobileLeft");
+    bindMobileMoveButton(moveRightButton, "MobileRight");
+
+    canvas.addEventListener("click", (event) => {
+      const { x, y } = getCanvasPoint(event);
+
+      if (gameState === "mode_select") {
+        if (isInsideButton(x, y, pcModeButton)) {
+          setControlMode("pc");
+          gameState = "menu";
+        } else if (isInsideButton(x, y, mobileModeButton)) {
+          setControlMode("mobile");
+          gameState = "menu";
+        }
+      } else if (gameState === "menu") {
         for (const button of levelButtons) {
           if (isInsideButton(x, y, button)) {
             resetGame(button.label);
@@ -753,6 +877,7 @@
           nextParalysisCheckAt = 0;
           paralysisUntil = 0;
           gameState = "menu";
+          setMobileControlsActive(false);
         }
       }
     });
