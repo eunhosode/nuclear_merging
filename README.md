@@ -70,3 +70,9 @@ python nuclear_merging.py
 
 ## License
 MIT License
+
+## Play
+
+You can play the web version here:
+
+https://eunhosode.github.io/nuclear_merging/
